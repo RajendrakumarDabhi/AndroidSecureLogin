@@ -16,22 +16,44 @@ import androidx.fragment.app.FragmentActivity
  *
  * ### 1. Passkey Registration (Create Credential)
  * 1. **Challenge Request**: The app requests a registration challenge from the backend.
- * 2. **Backend Options**: The backend returns a JSON (like [registerRequestJson]) containing:
- *    - `challenge`: A unique random buffer.
- *    - `rp`: Relying Party info (e.g., your domain).
- *    - `user`: User account details.
- * 3. **Client Execution**: The app calls [registerPasskey], passing this JSON to [CreatePublicKeyCredentialRequest].
- * 4. **User Consent**: Android prompts the user to create a passkey (e.g., via fingerprint).
- * 5. **Backend Verification**: The app receives a response object. This must be sent to the backend.
- *    The backend verifies the challenge and cryptographic signatures, then stores the public key.
+ * 2. **Backend Options**: The backend returns a JSON (like [registerRequestJson]).
+ * 3. **Client Execution**: The app calls [registerPasskey].
+ * 4. **Backend Verification**: Send the resulting credential data to your `/register/finish` endpoint.
+ *
+ * #### Typical Registration Finish JSON:
+ * ```json
+ * {
+ *   "id": "base64-credential-id",
+ *   "rawId": "base64-credential-id",
+ *   "type": "public-key",
+ *   "response": {
+ *     "attestationObject": "base64-attestation-data",
+ *     "clientDataJSON": "base64-client-data-json"
+ *   },
+ *   "authenticatorAttachment": "platform"
+ * }
+ * ```
  *
  * ### 2. Passkey Login (Get Credential)
  * 1. **Challenge Request**: The app requests a login challenge from the backend.
- * 2. **Backend Options**: The backend returns a JSON (like [loginRequestJson]) containing the challenge and RP ID.
- * 3. **Client Execution**: The app calls [loginWithPasskey], passing the JSON to [GetPublicKeyCredentialOption].
- * 4. **User Selection**: Android shows the available passkeys for the site.
- * 5. **Backend Verification**: The app receives a credential containing an assertion (signature).
- *    This is sent to the backend, which verifies the signature using the stored public key.
+ * 2. **Backend Options**: The backend returns a JSON (like [loginRequestJson]).
+ * 3. **Client Execution**: The app calls [loginWithPasskey].
+ * 4. **Backend Verification**: Send the assertion to your `/login/finish` endpoint.
+ *
+ * #### Typical Login Finish JSON (Assertion):
+ * ```json
+ * {
+ *   "id": "base64-credential-id",
+ *   "rawId": "base64-credential-id",
+ *   "type": "public-key",
+ *   "response": {
+ *     "authenticatorData": "base64-auth-data",
+ *     "clientDataJSON": "base64-client-data-json",
+ *     "signature": "base64-signature",
+ *     "userHandle": "base64-user-id"
+ *   }
+ * }
+ * ```
  */
 class PasskeyAuthenticator(private val context: Context) {
     private val credentialManager = CredentialManager.create(context)
@@ -93,7 +115,7 @@ class PasskeyAuthenticator(private val context: Context) {
         return try {
             val request = CreatePublicKeyCredentialRequest(registerRequestJson)
             val result = credentialManager.createCredential(activity, request)
-            // result.data contains the information that must be sent to the backend for verification.
+            // result.data contains the bundle that should be converted to JSON and sent to the backend.
             Result.success("Passkey registered: ${result.type}")
         } catch (e: CreateCredentialException) {
             Result.failure(e)
@@ -114,7 +136,7 @@ class PasskeyAuthenticator(private val context: Context) {
                 listOf(getPublicKeyCredentialOption)
             )
             val result = credentialManager.getCredential(activity, getCredentialRequest)
-            // result.credential contains the assertion to be sent to the backend.
+            // result.credential.data contains the assertion to be converted to JSON and sent to the backend.
             Result.success("Logged in with passkey: ${result.credential.type}")
         } catch (e: GetCredentialException) {
             Result.failure(e)
