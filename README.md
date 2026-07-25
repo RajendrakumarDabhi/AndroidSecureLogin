@@ -2,7 +2,7 @@
 
 A modern Android application demonstrating the implementation of **Biometric Authentication** and **Passkeys** using **Jetpack Compose** and **MVVM Architecture**.
 
-This project provides a comprehensive guide on how to implement high-security authentication flows with cryptographic backend verification.
+This project serves as a complete technical guide for integrating high-security authentication flows with cryptographic backend verification.
 
 ---
 
@@ -48,11 +48,6 @@ sequenceDiagram
     participant Android_Keystore as Keystore (Secure Hardware)
     participant Server
 
-    Note over User, Server: Registration Phase
-    App->>Android_Keystore: Generate Public/Private Key Pair
-    App->>Server: Send Public Key
-    Server-->>Server: Store Public Key for User
-
     Note over User, Server: Login Phase
     App->>Server: Request Challenge (Nonce)
     Server-->>App: Return Unique Challenge
@@ -66,17 +61,28 @@ sequenceDiagram
     Server-->>App: Return Authentication Token (JWT)
 ```
 
-### 🛠️ Implementation Steps
+### 🛠️ Android Implementation Steps
 
-#### Step 1: The Authenticator Logic
-We encapsulate `BiometricPrompt` logic in a dedicated class to handle system dialogs and callbacks.
+#### 1. Add Dependencies & Permissions
+```kotlin
+// build.gradle.kts
+dependencies {
+    implementation("androidx.biometric:biometric-ktx:1.2.0-alpha05")
+}
+```
+Add to `AndroidManifest.xml`:
+```xml
+<uses-permission android:name="android.permission.USE_BIOMETRIC" />
+```
+
+#### 2. The Authenticator Logic
+We encapsulate `BiometricPrompt` logic in a dedicated class. Using a `CryptoObject` is essential for backend verification.
 
 ```kotlin
 class BiometricAuthenticator(private val context: Context) {
     fun promptBiometricAuth(
         activity: FragmentActivity,
-        onSuccess: (BiometricPrompt.AuthenticationResult) -> Unit,
-        onError: (Int, CharSequence) -> Unit
+        onSuccess: (BiometricPrompt.AuthenticationResult) -> Unit
     ) {
         val executor = ContextCompat.getMainExecutor(activity)
         val biometricPrompt = BiometricPrompt(activity, executor,
@@ -90,8 +96,8 @@ class BiometricAuthenticator(private val context: Context) {
 }
 ```
 
-#### Step 2: State Management (ViewModel)
-The `ViewModel` manages the authentication state and orchestrates the signing process with the backend.
+#### 3. State Management (ViewModel)
+The `ViewModel` manages the authentication state (`Idle`, `Loading`, `Success`, `Error`).
 
 ```kotlin
 class AuthViewModel(private val authenticator: BiometricAuthenticator) : ViewModel() {
@@ -104,22 +110,22 @@ class AuthViewModel(private val authenticator: BiometricAuthenticator) : ViewMod
             onSuccess = { result ->
                 // Production: Use result.cryptoObject to sign a backend challenge
                 _authState.value = AuthState.Success("Securely Authenticated!")
-            },
-            onError = { code, msg -> _authState.value = AuthState.Error(msg.toString()) }
+            }
         )
     }
 }
 ```
 
-### 🔐 Backend Communication (Login Verification)
-To securely verify a biometric login, send the following payload to your API:
+### 📋 Backend API Contracts (Biometric)
 
-**Request JSON:**
+#### Verify Signature
+- **Endpoint**: `POST /api/auth/biometric/verify`
+- **Request Body**:
 ```json
 {
+  "userId": "user-123",
   "challenge": "server-generated-nonce",
-  "signature": "base64-encoded-signature-from-crypto-object",
-  "userId": "user-unique-identifier"
+  "signature": "base64-encoded-signature-from-crypto-object"
 }
 ```
 
@@ -127,7 +133,7 @@ To securely verify a biometric login, send the following payload to your API:
 
 ## 🔑 2. Passkey Authentication Guide
 
-**Passkeys** are based on the **FIDO2/WebAuthn** standard, allowing users to sign in using their device’s screen lock.
+**Passkeys** are the modern replacement for passwords, based on the **FIDO2/WebAuthn** standard. They allow users to sign in using their device’s screen lock and are resistant to phishing.
 
 ### 🏗️ High-Level Design (HLD)
 
@@ -139,12 +145,12 @@ sequenceDiagram
     participant Server
 
     Note over User, Server: Registration Phase
-    App->>Server: Get Registration Challenge
-    Server-->>App: Return Challenge & RP ID
+    App->>Server: Registration Start (userId, userName)
+    Server-->>App: Return CreationOptions (Challenge, RP ID, User info)
     App->>Credential_Manager: CreatePublicKeyCredentialRequest
     User->>Credential_Manager: Authenticate (Biometrics/PIN)
-    Credential_Manager-->>App: Return New Public Key Credential
-    App->>Server: Send Credential to Verify & Store
+    Credential_Manager-->>App: Return New Credential
+    App->>Server: Registration Finish (Credential JSON)
     Server-->>App: Registration Success
 
     Note over User, Server: Login Phase
@@ -152,16 +158,25 @@ sequenceDiagram
     Server-->>App: Return Challenge & RP ID
     App->>Credential_Manager: GetPublicKeyCredentialOption
     User->>Credential_Manager: Select Passkey & Authenticate
-    Credential_Manager-->>App: Return Authentication Assertion (Signature)
+    Credential_Manager-->>App: Return Assertion (Signature)
     App->>Server: Send Assertion to Verify
     Server->>Server: Verify Signature with stored Public Key
     Server-->>App: Login Success (Session Token)
 ```
 
-### 🛠️ Implementation Steps
+### 🛠️ Android Implementation Steps
 
-#### Step 1: The Passkey Authenticator
-Handles JSON interaction required for FIDO2 via `CredentialManager`.
+#### 1. Add Dependencies
+```kotlin
+// build.gradle.kts
+dependencies {
+    implementation("androidx.credentials:credentials:1.5.0")
+    implementation("androidx.credentials:credentials-play-services-auth:1.5.0")
+}
+```
+
+#### 2. The Passkey Authenticator
+Handles JSON interaction required for FIDO2 via the `CredentialManager` API.
 
 ```kotlin
 class PasskeyAuthenticator(context: Context) {
@@ -177,52 +192,54 @@ class PasskeyAuthenticator(context: Context) {
 }
 ```
 
-#### Step 2: ViewModel Integration
-Manages the two-step registration and login handshake.
+#### 3. UI with Jetpack Compose
+We observe the `ViewModel` state to provide dynamic feedback to the user.
 
 ```kotlin
-class PasskeyViewModel(private val authenticator: PasskeyAuthenticator) : ViewModel() {
-    fun login(activity: FragmentActivity) {
-        viewModelScope.launch {
-            _uiState.value = PasskeyUiState.Loading
-            val challengeJson = repository.getLoginChallenge() 
-            val result = authenticator.loginWithPasskey(activity, challengeJson)
-            result.onSuccess { 
-                repository.verifyLoginAssertion(it)
-                _uiState.value = PasskeyUiState.Success("Welcome back!")
-            }
-        }
+@Composable
+fun PasskeyScreen(viewModel: PasskeyViewModel) {
+    val uiState by viewModel.uiState.collectAsState()
+    // ... UI Logic with Material 3 Cards and Icons
+}
+```
+
+### 📋 Backend API Contracts (Passkey)
+
+#### A. Registration Finish
+- **Endpoint**: `POST /api/passkey/register/finish`
+- **Payload**:
+```json
+{
+  "userId": "user-123",
+  "credential": {
+    "id": "base64-id",
+    "rawId": "base64-id",
+    "type": "public-key",
+    "response": {
+      "attestationObject": "base64-data",
+      "clientDataJSON": "base64-data"
+    },
+    "authenticatorAttachment": "platform"
+  }
+}
+```
+
+#### B. Login Finish (Assertion)
+- **Endpoint**: `POST /api/passkey/login/finish`
+- **Payload**:
+```json
+{
+  "userId": "user-123",
+  "credential": {
+    "id": "base64-id",
+    "rawId": "base64-id",
+    "type": "public-key",
+    "response": {
+      "authenticatorData": "base64-data",
+      "clientDataJSON": "base64-data",
+      "signature": "base64-signature",
+      "userHandle": "base64-user-id"
     }
-}
-```
-
-### 🔐 Backend Communication (FIDO2 Payloads)
-
-#### Passkey Registration Finish
-```json
-{
-  "id": "base64-credential-id",
-  "rawId": "base64-credential-id",
-  "type": "public-key",
-  "response": {
-    "attestationObject": "base64-attestation-data",
-    "clientDataJSON": "base64-client-data-json"
-  },
-  "authenticatorAttachment": "platform"
-}
-```
-
-#### Passkey Login Finish (Assertion)
-```json
-{
-  "id": "base64-credential-id",
-  "rawId": "base64-credential-id",
-  "type": "public-key",
-  "response": {
-    "authenticatorData": "base64-auth-data",
-    "clientDataJSON": "base64-client-data-json",
-    "signature": "base64-signature",
-    "userHandle": "base64-user-id"
   }
 }
 ```
@@ -239,7 +256,7 @@ class PasskeyViewModel(private val authenticator: PasskeyAuthenticator) : ViewMo
 
 ## ⚠️ Security Note
 
-This demo uses mocked backend responses. In production, successful authentication results **must** be verified by your server. Detailed implementation notes are provided in the **KDoc** of each `Authenticator` class.
+This demo uses mocked backend responses. In production, successful authentication results **must** be verified by your server using the cryptographic contracts defined above. Detailed implementation notes are provided in the **KDoc** of each `Authenticator` class.
 
 ---
 Developed with ❤️ for secure Android development.
