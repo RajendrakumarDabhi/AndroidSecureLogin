@@ -37,15 +37,9 @@ com.rajendra.androidsecurelogin/
 
 ## 🔒 1. Biometric Authentication Guide
 
-In the era of modern mobile applications, user experience and security must go hand in hand. **Biometric Authentication** (Fingerprint, Face, and Iris) has become the gold standard for providing quick yet highly secure access to sensitive information.
-
-This guide explores how to implement a production-ready Biometric Login flow in Android using the **MVVM architecture** and best security practices.
+**Biometric Authentication** (Fingerprint, Face, and Iris) provides quick yet highly secure access. For a truly secure system, the authentication must be cryptographically verified by your backend server.
 
 ### 🏗️ High-Level Design (HLD)
-
-A common mistake is to treat biometric success as a simple “true/false” check. For a truly secure system, the authentication must be cryptographically verified by your backend server.
-
-#### Authentication Flow Diagram
 
 ```mermaid
 sequenceDiagram
@@ -74,30 +68,11 @@ sequenceDiagram
 
 ### 🛠️ Implementation Steps
 
-#### 1. Add Dependencies & Permissions
-Add the Biometric library to your `build.gradle.kts`:
-```kotlin
-dependencies {
-    implementation("androidx.biometric:biometric-ktx:1.2.0-alpha05")
-}
-```
-And add the permission to your `AndroidManifest.xml`:
-```xml
-<uses-permission android:name="android.permission.USE_BIOMETRIC" />
-```
-
-#### 2. The Authenticator Logic (The “How”)
-We encapsulate the `BiometricPrompt` logic in a dedicated class. This class handles the system dialog and callbacks.
+#### Step 1: The Authenticator Logic
+We encapsulate `BiometricPrompt` logic in a dedicated class to handle system dialogs and callbacks.
 
 ```kotlin
 class BiometricAuthenticator(private val context: Context) {
-    fun isBiometricAvailable(): Boolean {
-        val biometricManager = BiometricManager.from(context)
-        return biometricManager.canAuthenticate(
-            BiometricManager.Authenticators.BIOMETRIC_STRONG
-        ) == BiometricManager.BIOMETRIC_SUCCESS
-    }
-
     fun promptBiometricAuth(
         activity: FragmentActivity,
         onSuccess: (BiometricPrompt.AuthenticationResult) -> Unit,
@@ -109,31 +84,16 @@ class BiometricAuthenticator(private val context: Context) {
                 override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
                     onSuccess(result)
                 }
-                // ... handle onAuthenticationError and onAuthenticationFailed
             })
-
-        val promptInfo = BiometricPrompt.PromptInfo.Builder()
-            .setTitle("Biometric Login")
-            .setSubtitle("Sign in using your biometrics")
-            .setNegativeButtonText("Use Password")
-            .build()
-
-        biometricPrompt.authenticate(promptInfo)
+        // ... build promptInfo and authenticate
     }
 }
 ```
 
-#### 3. Managing State with ViewModel
-Following MVVM, the ViewModel manages the authentication state (Idle, Loading, Success, Error) and ensures the UI remains reactive.
+#### Step 2: State Management (ViewModel)
+The `ViewModel` manages the authentication state and orchestrates the signing process with the backend.
 
 ```kotlin
-sealed class AuthState {
-    object Idle : AuthState()
-    object Loading : AuthState()
-    data class Success(val message: String) : AuthState()
-    data class Error(val message: String) : AuthState()
-}
-
 class AuthViewModel(private val authenticator: BiometricAuthenticator) : ViewModel() {
     private val _authState = MutableStateFlow<AuthState>(AuthState.Idle)
     val authState: StateFlow<AuthState> = _authState.asStateFlow()
@@ -151,48 +111,26 @@ class AuthViewModel(private val authenticator: BiometricAuthenticator) : ViewMod
 }
 ```
 
-#### 4. The User Interface (Jetpack Compose)
-```kotlin
-@Composable
-fun LoginScreen(viewModel: AuthViewModel) {
-    val state by viewModel.authState.collectAsState()
+### 🔐 Backend Communication (Login Verification)
+To securely verify a biometric login, send the following payload to your API:
 
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        when (state) {
-            is AuthState.Loading -> CircularProgressIndicator()
-            is AuthState.Success -> Icon(Icons.Default.CheckCircle, tint = Color.Green)
-            is AuthState.Error -> Text("Error: ${(state as AuthState.Error).message}")
-            else -> Text("Please Authenticate")
-        }
-
-        Button(onClick = { viewModel.authenticate(activity) }) {
-            Text("Login with Fingerprint")
-        }
-    }
+**Request JSON:**
+```json
+{
+  "challenge": "server-generated-nonce",
+  "signature": "base64-encoded-signature-from-crypto-object",
+  "userId": "user-unique-identifier"
 }
 ```
-
-### 🔐 Secure Backend Verification
-For maximum security, always use **`CryptoObject`**.
-1. Generate a KeyPair in the **Android Keystore** with `setUserAuthenticationRequired(true)`.
-2. When `onAuthenticationSucceeded` is called, it means the private key is now “unlocked” for a short window.
-3. Sign a **Server Challenge** with that private key.
-4. Send the signature to your backend. The backend verifies it using the public key you registered during the user’s initial setup.
-
-This ensures that even if a device is rooted, the biometric success cannot be “faked” because the private key never leaves the secure hardware.
 
 ---
 
 ## 🔑 2. Passkey Authentication Guide
 
-**Passkeys** are the modern, more secure alternative to passwords. Based on the **FIDO2/WebAuthn** standard, they allow users to sign in to apps and websites using their device’s screen lock (fingerprint, face, or PIN). Unlike passwords, passkeys are unique to every account and never leave the user’s device.
-
-In this guide, we’ll walk through implementing Passkey authentication in Android using the **Credential Manager API** and **MVVM architecture**.
+**Passkeys** are based on the **FIDO2/WebAuthn** standard, allowing users to sign in using their device’s screen lock.
 
 ### 🏗️ High-Level Design (HLD)
-Passkey authentication involves a two-step handshake between the app and the backend server for both registration and login.
 
-#### Passkey Authentication Flow Diagram
 ```mermaid
 sequenceDiagram
     participant User
@@ -222,39 +160,16 @@ sequenceDiagram
 
 ### 🛠️ Implementation Steps
 
-#### 1. Add Dependencies
-Add the Credential Manager and Play Services Auth libraries to your `build.gradle.kts`:
-```kotlin
-dependencies {
-    implementation("androidx.credentials:credentials:1.5.0")
-    implementation("androidx.credentials:credentials-play-services-auth:1.5.0")
-    implementation("com.google.android.libraries.identity.googleid:googleid:1.1.1")
-}
-```
-
-#### 2. The Passkey Authenticator Logic
-The `PasskeyAuthenticator` encapsulates the `CredentialManager` calls. It handles the JSON interaction required for FIDO2.
+#### Step 1: The Passkey Authenticator
+Handles JSON interaction required for FIDO2 via `CredentialManager`.
 
 ```kotlin
 class PasskeyAuthenticator(context: Context) {
-    private val credentialManager = CredentialManager.create(context)
-
-    suspend fun registerPasskey(activity: FragmentActivity, requestJson: String): Result<CreateCredentialResponse> {
-        return try {
-            val request = CreatePublicKeyCredentialRequest(requestJson)
-            val result = credentialManager.createCredential(activity, request)
-            Result.success(result)
-        } catch (e: CreateCredentialException) {
-            Result.failure(e)
-        }
-    }
-
     suspend fun loginWithPasskey(activity: FragmentActivity, requestJson: String): Result<GetCredentialResponse> {
         return try {
             val option = GetPublicKeyCredentialOption(requestJson)
             val request = GetCredentialRequest(listOf(option))
-            val result = credentialManager.getCredential(activity, request)
-            Result.success(result)
+            Result.success(credentialManager.getCredential(activity, request))
         } catch (e: GetCredentialException) {
             Result.failure(e)
         }
@@ -262,62 +177,55 @@ class PasskeyAuthenticator(context: Context) {
 }
 ```
 
-#### 3. ViewModel Integration (MVVM)
-The `ViewModel` handles the state transition and communicates with the backend to fetch challenges.
+#### Step 2: ViewModel Integration
+Manages the two-step registration and login handshake.
 
 ```kotlin
 class PasskeyViewModel(private val authenticator: PasskeyAuthenticator) : ViewModel() {
-    private val _uiState = MutableStateFlow<PasskeyUiState>(PasskeyUiState.Idle)
-    val uiState: StateFlow<PasskeyUiState> = _uiState.asStateFlow()
-
     fun login(activity: FragmentActivity) {
         viewModelScope.launch {
             _uiState.value = PasskeyUiState.Loading
-            // 1. Fetch challenge from your backend
             val challengeJson = repository.getLoginChallenge() 
-            
-            // 2. Trigger Credential Manager
             val result = authenticator.loginWithPasskey(activity, challengeJson)
-            
-            // 3. Verify assertion with backend
             result.onSuccess { 
                 repository.verifyLoginAssertion(it)
                 _uiState.value = PasskeyUiState.Success("Welcome back!")
-            }.onFailure { 
-                _uiState.value = PasskeyUiState.Error(it.message ?: "Login failed")
             }
         }
     }
 }
 ```
 
-#### 4. UI with Jetpack Compose
-```kotlin
-@Composable
-fun PasskeyScreen(viewModel: PasskeyViewModel) {
-    val uiState by viewModel.uiState.collectAsState()
+### 🔐 Backend Communication (FIDO2 Payloads)
 
-    Card(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
-        Column(modifier = Modifier.padding(24.dp)) {
-            Text("Passkey Authentication", style = MaterialTheme.typography.headlineSmall)
-            
-            Spacer(modifier = Modifier.height(16.dp))
-            
-            Button(
-                onClick = { viewModel.login(activity) },
-                enabled = uiState !is PasskeyUiState.Loading
-            ) {
-                Text("Sign in with Passkey")
-            }
-        }
-    }
+#### Passkey Registration Finish
+```json
+{
+  "id": "base64-credential-id",
+  "rawId": "base64-credential-id",
+  "type": "public-key",
+  "response": {
+    "attestationObject": "base64-attestation-data",
+    "clientDataJSON": "base64-client-data-json"
+  },
+  "authenticatorAttachment": "platform"
 }
 ```
 
-### 🔐 Why Passkeys are Better
-1. **Phishing Resistant**: Passkeys are bound to the domain (RP ID). A user cannot accidentally “type” their passkey into a fake website.
-2. **No More Passwords**: Users don’t need to remember anything. They use the same biometric flow they use to unlock their phone.
-3. **Sync-able**: Passkeys are backed up to the cloud (e.g., Google Password Manager) and work across all the user’s Android devices.
+#### Passkey Login Finish (Assertion)
+```json
+{
+  "id": "base64-credential-id",
+  "rawId": "base64-credential-id",
+  "type": "public-key",
+  "response": {
+    "authenticatorData": "base64-auth-data",
+    "clientDataJSON": "base64-client-data-json",
+    "signature": "base64-signature",
+    "userHandle": "base64-user-id"
+  }
+}
+```
 
 ---
 
@@ -326,8 +234,8 @@ fun PasskeyScreen(viewModel: PasskeyViewModel) {
 1. **Clone the repository.**
 2. **Sync the project** with Gradle.
 3. **Run on a device/emulator**:
-   - For **Biometric**: Ensure your device has biometrics enrolled.
-   - For **Passkey**: Requires a device with Play Services and an active Google Account.
+    - For **Biometric**: Ensure your device has biometrics enrolled.
+    - For **Passkey**: Requires a device with Play Services and an active Google Account.
 
 ## ⚠️ Security Note
 
