@@ -11,8 +11,6 @@ import kotlinx.coroutines.flow.asStateFlow
  * ViewModel for handling Biometric Authentication states and logic.
  *
  * This class orchestrates the biometric flow between the UI and the [BiometricAuthenticator].
- * In a real-world scenario, the successful authentication result should be verified 
- * by a backend server before considering the login complete.
  */
 class AuthViewModel(private val authenticator: BiometricAuthenticator) : ViewModel() {
 
@@ -26,14 +24,24 @@ class AuthViewModel(private val authenticator: BiometricAuthenticator) : ViewMod
     /**
      * Starts the biometric authentication process.
      *
-     * ## Real-world Implementation Note:
-     * To verify authentication on the backend:
-     * 1. **Loading State**: Show a progress indicator while waiting for the user.
-     * 2. **Success Case**: Instead of just setting `AuthState.Success`, you would:
-     *    - Extract the signature/assertion from `AuthenticationResult`.
-     *    - Call a repository/API to send this signature to your backend.
-     *    - The backend verifies the signature against the stored public key.
-     *    - Upon backend success, transition to the authenticated part of the app.
+     * ## 🌐 Backend Communication (Login Verification):
+     * To securely verify a biometric login, you should send the following payload to your API 
+     * (e.g., `POST /api/auth/biometric-verify`):
+     *
+     * ```json
+     * {
+     *   "challenge": "the-nonce-from-server",
+     *   "signature": "base64-encoded-signature",
+     *   "userId": "user_id_123"
+     * }
+     * ```
+     *
+     * ### Implementation Steps:
+     * 1. **Request Challenge**: Fetch a fresh challenge from your server.
+     * 2. **Local Auth**: Pass a [androidx.biometric.BiometricPrompt.CryptoObject] to [BiometricAuthenticator.promptBiometricAuth].
+     * 3. **Sign**: In the `onSuccess` callback, use the unlocked [androidx.biometric.BiometricPrompt.AuthenticationResult.cryptoObject] 
+     *    to sign the challenge.
+     * 4. **Verify**: Send the resulting signature to your server.
      */
     fun authenticate(activity: FragmentActivity) {
         if (!authenticator.isBiometricAvailable()) {
@@ -48,7 +56,8 @@ class AuthViewModel(private val authenticator: BiometricAuthenticator) : ViewMod
             subtitle = "Log in using your biometric credential",
             negativeButtonText = "Cancel",
             onSuccess = { result ->
-                // MOCKED SUCCESS: In production, send 'result.cryptoObject' data to backend
+                // MOCKED SUCCESS: In production, sign your server's challenge using result.cryptoObject
+                // and send the signature via your API.
                 _authState.value = AuthState.Success("Logged In Successfully (Mocked)")
             },
             onError = { errorCode, errString ->

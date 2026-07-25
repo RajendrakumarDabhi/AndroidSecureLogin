@@ -17,8 +17,17 @@ import androidx.fragment.app.FragmentActivity
  *    authentication (`setUserAuthenticationRequired(true)`).
  * 3. **Success**: In [onAuthenticationSucceeded], use the unlocked [BiometricPrompt.AuthenticationResult.cryptoObject] 
  *    to sign the challenge.
- * 4. **Verification**: Send the signature and the challenge back to the backend. The backend 
- *    verifies the signature using the public key previously registered for this user.
+ * 4. **Verification**: Send the signature and the challenge back to the backend.
+ *
+ * ### Typical API Request JSON (Biometric Login):
+ * ```json
+ * {
+ *   "challenge": "server-generated-nonce",
+ *   "signature": "base64-encoded-signature-from-crypto-object",
+ *   "userId": "user-unique-identifier"
+ * }
+ * ```
+ * The backend verifies the signature using the public key previously registered for this user.
  *
  * *Note: If no CryptoObject is used, the authentication is only local to the device and 
  * cannot be verified securely by a remote server.*
